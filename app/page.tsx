@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getKlines } from "@/lib/fetchKlines";
 
 type Symbol = "BTC" | "ETH";
 
@@ -34,7 +35,7 @@ type CandlePoint = {
   rsi?: number | null;
 };
 
-const CHART_POINT_COUNT = 120;
+const CHART_POINT_COUNT = 180;
 
 export default function Home() {
   const [symbol, setSymbol] = useState<Symbol>("BTC");
@@ -42,11 +43,33 @@ export default function Home() {
   const [emaSpan, setEmaSpan] = useState(12);
   const [rsiPeriod, setRsiPeriod] = useState(14);
   const [seed, setSeed] = useState(1);
+  const [priceData, setPriceData] = useState<CandlePoint[]>([]);
 
-  const priceData = useMemo(
-    () => genData(symbol, CHART_POINT_COUNT, seed),
-    [symbol, seed],
-  );
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        const rows = await getKlines(symbol, "1d", CHART_POINT_COUNT);
+        if (!alive) return;
+        const normalized = rows.map((row) => ({
+          date: row.date,
+          close: row.close,
+        }));
+        if (normalized.length === 0) {
+          throw new Error("empty klines");
+        }
+        setPriceData(normalized);
+      } catch {
+        if (!alive) return;
+        setPriceData(genData(symbol, CHART_POINT_COUNT, seed));
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [symbol, seed]);
 
   const chartData = useMemo(() => {
     const closes = priceData.map((point) => point.close);
