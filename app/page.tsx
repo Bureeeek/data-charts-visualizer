@@ -1,8 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { TooltipProps } from "recharts";
 import {
+  Bar,
   CartesianGrid,
+  Cell,
+  ComposedChart,
   Legend,
   Line,
   LineChart,
@@ -28,10 +32,24 @@ type Symbol = "BTC" | "ETH";
 
 type CandlePoint = {
   date: string;
+  open: number;
+  high: number;
+  low: number;
   close: number;
+  volume: number;
   sma?: number | null;
   ema?: number | null;
   rsi?: number | null;
+};
+
+type ChartPoint = CandlePoint & {
+  bodyBase: number;
+  bodyRange: number;
+  wickBase: number;
+  wickRange: number;
+  volumeBase: number;
+  volumeHeight: number;
+  direction: "up" | "down";
 };
 
 const CHART_POINT_COUNT = 180;
@@ -48,18 +66,64 @@ export default function Home() {
     [symbol, seed],
   );
 
-  const chartData = useMemo(() => {
+  const { chartData, candleDomain } = useMemo(() => {
+    if (priceData.length === 0) {
+      return {
+        chartData: [] as ChartPoint[],
+        candleDomain: [0, 1] as [number, number],
+      };
+    }
+
     const closes = priceData.map((point) => point.close);
+    const highs = priceData.map((point) => point.high);
+    const lows = priceData.map((point) => point.low);
+    const volumes = priceData.map((point) => point.volume);
+
     const smaValues = calculateSMA(closes, smaWindow);
     const emaValues = calculateEMA(closes, emaSpan);
     const rsiValues = calculateRSI(closes, rsiPeriod);
 
-    return priceData.map((point, index) => ({
-      ...point,
-      sma: smaValues[index],
-      ema: emaValues[index],
-      rsi: rsiValues[index],
-    }));
+    const priceHigh = Math.max(...highs);
+    const priceLow = Math.min(...lows);
+    const priceRange = Math.max(priceHigh - priceLow, priceHigh * 0.01);
+    const pricePadding = priceRange * 0.08;
+    const maxVolume = Math.max(...volumes, 1);
+    const volumeBand = priceRange * 0.22;
+    const volumeBase = priceLow - volumeBand * 1.4;
+
+    const enriched: ChartPoint[] = priceData.map((point, index) => {
+      const { open, close, high, low, volume } = point;
+      const direction = close >= open ? "up" : "down";
+      const bodyBase = Math.min(open, close);
+      const rawBodyRange = Math.abs(close - open);
+      const bodyRange = Number(Math.max(rawBodyRange, close * 0.0015).toFixed(2));
+      const wickRange = Number(Math.max(high - low, close * 0.0015).toFixed(2));
+      const volumeHeight = Number(
+        Math.max((volume / maxVolume) * volumeBand * 0.9, volumeBand * 0.15).toFixed(2),
+      );
+
+      return {
+        ...point,
+        sma: smaValues[index],
+        ema: emaValues[index],
+        rsi: rsiValues[index],
+        bodyBase,
+        bodyRange,
+        wickBase: low,
+        wickRange,
+        volumeBase,
+        volumeHeight,
+        direction,
+      };
+    });
+
+    const domainMin = volumeBase - pricePadding;
+    const domainMax = priceHigh + pricePadding;
+
+    return {
+      chartData: enriched,
+      candleDomain: [Number(domainMin.toFixed(2)), Number(domainMax.toFixed(2))] as [number, number],
+    };
   }, [priceData, smaWindow, emaSpan, rsiPeriod]);
 
   const handleRegenerate = () => setSeed((prev) => prev + 1);
@@ -192,6 +256,104 @@ export default function Home() {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
+
+            <Card className="border-border bg-card/80 backdrop-blur lg:col-span-2">
+              <CardHeader className="pb-4">
+                <CardTitle>{symbol} Candles & Volume</CardTitle>
+                <CardDescription>Simulated OHLC candles with relative volume bars.</CardDescription>
+              </CardHeader>
+              <CardContent className="h-[420px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart
+                    data={chartData}
+                    margin={{ left: 0, right: 20, top: 10, bottom: 10 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="date" minTickGap={24} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis
+                      yAxisId="price"
+                      domain={candleDomain}
+                      stroke="hsl(var(--muted-foreground))"
+                      width={70}
+                      tickFormatter={(value) => `$${value.toLocaleString()}`}
+                    />
+                    <RechartsTooltip
+                      content={<CandleTooltip />}
+                      cursor={{ fill: "rgba(148, 163, 184, 0.08)" }}
+                    />
+                    <Legend />
+                    <Bar
+                      dataKey="wickBase"
+                      stackId="wick"
+                      yAxisId="price"
+                      fillOpacity={0}
+                      strokeOpacity={0}
+                      isAnimationActive={false}
+                      legendType="none"
+                    />
+                    <Bar
+                      dataKey="wickRange"
+                      stackId="wick"
+                      yAxisId="price"
+                      barSize={3}
+                      name="High / Low"
+                      fill="#94a3b8"
+                      isAnimationActive={false}
+                    />
+                    <Bar
+                      dataKey="bodyBase"
+                      stackId="body"
+                      yAxisId="price"
+                      fillOpacity={0}
+                      strokeOpacity={0}
+                      isAnimationActive={false}
+                      legendType="none"
+                    />
+                    <Bar
+                      dataKey="bodyRange"
+                      stackId="body"
+                      yAxisId="price"
+                      barSize={10}
+                      radius={[2, 2, 2, 2]}
+                      name="Open / Close"
+                      isAnimationActive={false}
+                    >
+                      {chartData.map((entry, index) => (
+                        <Cell
+                          key={`body-${index}`}
+                          fill={entry.direction === "up" ? "#22c55e" : "#ef4444"}
+                        />
+                      ))}
+                    </Bar>
+                    <Bar
+                      dataKey="volumeBase"
+                      stackId="volume"
+                      yAxisId="price"
+                      fillOpacity={0}
+                      strokeOpacity={0}
+                      isAnimationActive={false}
+                      legendType="none"
+                    />
+                    <Bar
+                      dataKey="volumeHeight"
+                      stackId="volume"
+                      yAxisId="price"
+                      barSize={6}
+                      name="Volume"
+                      opacity={0.45}
+                      isAnimationActive={false}
+                    >
+                      {chartData.map((entry, index) => (
+                        <Cell
+                          key={`volume-${index}`}
+                          fill={entry.direction === "up" ? "rgba(34,197,94,0.45)" : "rgba(239,68,68,0.45)"}
+                        />
+                      ))}
+                    </Bar>
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
           </div>
         </Tabs>
       </div>
@@ -203,19 +365,39 @@ function genData(symbol: Symbol, length = CHART_POINT_COUNT, seed = 1): CandlePo
   const basePrice = symbol === "BTC" ? 45000 : 3000;
   const drift = symbol === "BTC" ? 0.18 : 0.12;
   const volatility = symbol === "BTC" ? 0.035 : 0.028;
+  const baseVolume = symbol === "BTC" ? 32000 : 21000;
   const random = createSeededRandom(seed + symbol.charCodeAt(0));
-  let price = basePrice;
+  let previousClose = basePrice;
 
   return Array.from({ length }, (_, index) => {
+    const openRaw = previousClose;
     const shock = (random() - 0.5) * 2 * volatility;
-    price = Math.max(1, price * (1 + drift / 100 + shock));
+    const driftFactor = 1 + drift / 100;
+    const closeRaw = Math.max(1, openRaw * (driftFactor + shock));
+
+    const swingHigh = (0.4 + random() * 0.8) * volatility;
+    const swingLow = (0.4 + random() * 0.8) * volatility;
+
+    const maxBase = Math.max(openRaw, closeRaw);
+    const minBase = Math.min(openRaw, closeRaw);
+    const highRaw = maxBase * (1 + swingHigh);
+    const lowRaw = Math.max(1, minBase * (1 - swingLow));
+
     const date = new Date();
     date.setDate(date.getDate() - (length - index - 1));
 
-    return {
+    const candle = {
       date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      close: parseFloat(price.toFixed(2)),
-    };
+      open: parseFloat(openRaw.toFixed(2)),
+      high: parseFloat(Math.max(highRaw, closeRaw, openRaw).toFixed(2)),
+      low: parseFloat(Math.min(lowRaw, closeRaw, openRaw).toFixed(2)),
+      close: parseFloat(closeRaw.toFixed(2)),
+      volume: Math.round(baseVolume * (0.6 + random() * 0.8)),
+    } satisfies CandlePoint;
+
+    previousClose = closeRaw;
+
+    return candle;
   });
 }
 
@@ -306,6 +488,25 @@ function formatRsi(avgGain: number, avgLoss: number): number | null {
   }
   const rs = avgGain / avgLoss;
   return parseFloat((100 - 100 / (1 + rs)).toFixed(2));
+}
+
+function CandleTooltip({ active, payload, label }: TooltipProps<number, string>) {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+
+  const candle = payload[0].payload as ChartPoint;
+
+  return (
+    <div className="space-y-1 rounded-lg border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg">
+      <p className="font-semibold">{label}</p>
+      <p>Open: ${candle.open.toFixed(2)}</p>
+      <p>High: ${candle.high.toFixed(2)}</p>
+      <p>Low: ${candle.low.toFixed(2)}</p>
+      <p>Close: ${candle.close.toFixed(2)}</p>
+      <p>Volume: {candle.volume.toLocaleString()}</p>
+    </div>
+  );
 }
 
 type IndicatorSliderProps = {
