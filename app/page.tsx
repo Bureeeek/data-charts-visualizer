@@ -25,6 +25,7 @@ import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Symbol = "BTC" | "ETH";
+type Interval = "1h" | "4h" | "1d" | "1w";
 
 type CandlePoint = {
   date: string;
@@ -35,6 +36,13 @@ type CandlePoint = {
 };
 
 const CHART_POINT_COUNT = 180;
+const POINTS: Record<Interval, number> = {
+  "1h": 60,
+  "4h": 120,
+  "1d": CHART_POINT_COUNT,
+  "1w": 156,
+};
+const INTERVALS: Interval[] = ["1h", "4h", "1d", "1w"];
 
 export default function Home() {
   const [symbol, setSymbol] = useState<Symbol>("BTC");
@@ -42,10 +50,11 @@ export default function Home() {
   const [emaSpan, setEmaSpan] = useState(12);
   const [rsiPeriod, setRsiPeriod] = useState(14);
   const [seed, setSeed] = useState(1);
+  const [interval, setInterval] = useState<Interval>("1d");
 
   const priceData = useMemo(
-    () => genData(symbol, CHART_POINT_COUNT, seed),
-    [symbol, seed],
+    () => genData(symbol, POINTS[interval], seed),
+    [symbol, interval, seed],
   );
 
   const chartData = useMemo(() => {
@@ -128,6 +137,20 @@ export default function Home() {
               />
             </CardContent>
           </Card>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {INTERVALS.map((option) => (
+              <Button
+                key={option}
+                type="button"
+                variant={interval === option ? "default" : "secondary"}
+                size="sm"
+                onClick={() => setInterval(option)}
+              >
+                {option}
+              </Button>
+            ))}
+          </div>
 
           <div className="grid gap-6 lg:grid-cols-2">
             <Card className="border-border bg-card/80 backdrop-blur">
