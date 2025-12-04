@@ -12,17 +12,21 @@ import {
 } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useTheme } from "@/components/ui/theme-provider";
 
 type Symbol = "BTC" | "ETH";
 type CandlePoint = { date: string; close: number; sma?: number | null; ema?: number | null; rsi?: number | null; };
 const CHART_POINT_COUNT = 180;
 
 export default function Home() {
-  const [symbol, setSymbol] = useState<Symbol>("BTC");
-  const [smaWindow, setSmaWindow] = useState(20);
-  const [emaSpan, setEmaSpan] = useState(12);
-  const [rsiPeriod, setRsiPeriod] = useState(14);
-  const [seed, setSeed] = useState(1);
+ const [symbol, setSymbol] = useState<Symbol>("BTC");
+const [smaWindow, setSmaWindow] = useState(20);
+const [emaSpan, setEmaSpan] = useState(12);
+const [rsiPeriod, setRsiPeriod] = useState(14);
+const [seed, setSeed] = useState(1);
+
+const { theme, toggleTheme } = useTheme();
+
 
   const priceData = useMemo(() => genData(symbol, CHART_POINT_COUNT, seed), [symbol, seed]);
 
@@ -59,16 +63,27 @@ export default function Home() {
 
     {/* Right: Asset-Typen und CTA */}
     <div className="flex items-center gap-3">
-      <Tabs value={symbol} onValueChange={(v) => setSymbol(v as Symbol)}>
-        <TabsList className="pill-tabs bg-muted/70 backdrop-blur">
-          <TabsTrigger value="BTC" className="pill">Stocks</TabsTrigger>
-          <TabsTrigger value="ETH" className="pill">Crypto</TabsTrigger>
-          <TabsTrigger value="BTC" className="pill">Indexes</TabsTrigger>
-          <TabsTrigger value="ETH" className="pill">Materials</TabsTrigger>
-        </TabsList>
-      </Tabs>
-      <Button className="btn-primary-hero">Sign Up</Button>
-    </div>
+  <Tabs value={symbol} onValueChange={(v) => setSymbol(v as Symbol)}>
+    <TabsList className="pill-tabs bg-muted/70 backdrop-blur">
+      <TabsTrigger value="BTC" className="pill">Stocks</TabsTrigger>
+      <TabsTrigger value="ETH" className="pill">Crypto</TabsTrigger>
+      <TabsTrigger value="BTC" className="pill">Indexes</TabsTrigger>
+      <TabsTrigger value="ETH" className="pill">Materials</TabsTrigger>
+    </TabsList>
+  </Tabs>
+
+  {/* Dark-Mode-Toggle */}
+  <Button
+    variant="outline"
+    onClick={toggleTheme}
+    className="h-9 px-3 text-xs font-medium"
+  >
+    {theme === "dark" ? "Light mode" : "Dark mode"}
+  </Button>
+
+  <Button className="btn-primary-hero">Sign Up</Button>
+</div>
+
   </div>
 
   {/* Hero-Title darunter */}
@@ -80,6 +95,7 @@ export default function Home() {
 
 
         {/* Controls */}
+
         <Card className="card-soft border-border">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg">Indicator Settings</CardTitle>
