@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer,
   Tooltip as RechartsTooltip, XAxis, YAxis,
@@ -12,9 +12,20 @@ import {
 } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getKlines } from "@/lib/fetchKlines";
 
 type Symbol = "BTC" | "ETH";
-type CandlePoint = { date: string; close: number; sma?: number | null; ema?: number | null; rsi?: number | null; };
+type CandlePoint = {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  sma?: number | null;
+  ema?: number | null;
+  rsi?: number | null;
+};
 const CHART_POINT_COUNT = 180;
 
 export default function Home() {
@@ -23,8 +34,29 @@ export default function Home() {
   const [emaSpan, setEmaSpan] = useState(12);
   const [rsiPeriod, setRsiPeriod] = useState(14);
   const [seed, setSeed] = useState(1);
+  const [priceData, setPriceData] = useState<CandlePoint[]>([]);
 
-  const priceData = useMemo(() => genData(symbol, CHART_POINT_COUNT, seed), [symbol, seed]);
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        const rows = await getKlines(symbol, "1d", CHART_POINT_COUNT);
+        if (!alive) return;
+        if (!rows.length) {
+          throw new Error("empty klines");
+        }
+        setPriceData(rows);
+      } catch {
+        if (!alive) return;
+        setPriceData(genData(symbol, CHART_POINT_COUNT, seed));
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [symbol, seed]);
 
   const chartData = useMemo(() => {
     const closes = priceData.map((p) => p.close);
@@ -181,17 +213,34 @@ function genData(symbol: Symbol, length = CHART_POINT_COUNT, seed = 1): CandlePo
   const basePrice = symbol === "BTC" ? 45000 : 3000;
   const drift = symbol === "BTC" ? 0.18 : 0.12;
   const volatility = symbol === "BTC" ? 0.035 : 0.028;
+  const baseVolume = symbol === "BTC" ? 38000 : 24000;
   const random = createSeededRandom(seed + symbol.charCodeAt(0));
-  let price = basePrice;
+  let previousClose = basePrice;
 
   return Array.from({ length }, (_, index) => {
+    const openRaw = previousClose;
     const shock = (random() - 0.5) * 2 * volatility;
-    price = Math.max(1, price * (1 + drift / 100 + shock));
+    const driftFactor = 1 + drift / 100;
+    const closeRaw = Math.max(1, openRaw * (driftFactor + shock));
+
+    const highNoise = (0.4 + random() * 0.8) * volatility;
+    const lowNoise = (0.4 + random() * 0.8) * volatility;
+    const baseHigh = Math.max(openRaw, closeRaw);
+    const baseLow = Math.min(openRaw, closeRaw);
+    const highRaw = baseHigh * (1 + highNoise);
+    const lowRaw = Math.max(1, baseLow * (1 - lowNoise));
+
+    const volume = Math.round(baseVolume * (0.55 + random() * 0.9));
     const date = new Date();
     date.setDate(date.getDate() - (length - index - 1));
+    previousClose = closeRaw;
     return {
       date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      close: parseFloat(price.toFixed(2)),
+      open: parseFloat(openRaw.toFixed(2)),
+      high: parseFloat(Math.max(highRaw, openRaw, closeRaw).toFixed(2)),
+      low: parseFloat(Math.min(lowRaw, openRaw, closeRaw).toFixed(2)),
+      close: parseFloat(closeRaw.toFixed(2)),
+      volume,
     };
   });
 }
