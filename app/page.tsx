@@ -12,9 +12,11 @@ import {
 } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import TradingViewChart from "@/components/TradingViewChart";
 import { getKlines } from "@/lib/fetchKlines";
 
 type Symbol = "BTC" | "ETH";
+type Interval = "1h" | "4h" | "1d" | "1w";
 type CandlePoint = {
   date: string;
   open: number;
@@ -26,22 +28,32 @@ type CandlePoint = {
   ema?: number | null;
   rsi?: number | null;
 };
-const CHART_POINT_COUNT = 180;
+const INTERVAL_POINTS: Record<Interval, number> = {
+  "1h": 300,
+  "4h": 240,
+  "1d": 180,
+  "1w": 156,
+};
+const INTERVALS: Interval[] = ["1h", "4h", "1d", "1w"];
+const DEFAULT_POINT_COUNT = INTERVAL_POINTS["1d"];
 
 export default function Home() {
   const [symbol, setSymbol] = useState<Symbol>("BTC");
   const [smaWindow, setSmaWindow] = useState(20);
   const [emaSpan, setEmaSpan] = useState(12);
   const [rsiPeriod, setRsiPeriod] = useState(14);
+  const [interval, setInterval] = useState<Interval>("1d");
   const [seed, setSeed] = useState(1);
   const [priceData, setPriceData] = useState<CandlePoint[]>([]);
+
+  const pointCount = INTERVAL_POINTS[interval];
 
   useEffect(() => {
     let alive = true;
 
     (async () => {
       try {
-        const rows = await getKlines(symbol, "1d", CHART_POINT_COUNT);
+        const rows = await getKlines(symbol, interval, pointCount);
         if (!alive) return;
         if (!rows.length) {
           throw new Error("empty klines");
@@ -49,14 +61,14 @@ export default function Home() {
         setPriceData(rows);
       } catch {
         if (!alive) return;
-        setPriceData(genData(symbol, CHART_POINT_COUNT, seed));
+        setPriceData(genData(symbol, pointCount, seed));
       }
     })();
 
     return () => {
       alive = false;
     };
-  }, [symbol, seed]);
+  }, [symbol, interval, pointCount, seed]);
 
   const chartData = useMemo(() => {
     const closes = priceData.map((p) => p.close);
@@ -132,6 +144,18 @@ export default function Home() {
               label="RSI Period" value={rsiPeriod} min={5} max={40} step={1}
               onValueChange={(v) => setRsiPeriod(v[0])}
             />
+            <div className="space-y-2 md:col-span-3">
+              <div className="text-sm font-medium">Interval</div>
+              <Tabs value={interval} onValueChange={(v) => setInterval(v as Interval)}>
+                <TabsList className="bg-muted/70">
+                  {INTERVALS.map((value) => (
+                    <TabsTrigger key={value} value={value} className="px-4 py-2">
+                      {value}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+            </div>
             <Button variant="outline" onClick={handleRegenerate} className="gap-2 w-full md:w-auto">
               <RefreshCcw className="h-4 w-4" />
               Regenerate Data
@@ -203,13 +227,38 @@ export default function Home() {
             </CardContent>
           </Card>
         </section>
+
+        <section className="mt-8">
+          <Card className="card-soft border-border">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-xl">TradingView Style Chart</CardTitle>
+              <CardDescription>
+                Zoom, pan, and crosshair interaction powered by lightweight-charts.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="h-[480px]">
+              <TradingViewChart
+                data={priceData.map((row) => ({
+                  time: row.date,
+                  open: row.open,
+                  high: row.high,
+                  low: row.low,
+                  close: row.close,
+                  volume: row.volume,
+                }))}
+                symbol={symbol}
+                interval={interval}
+              />
+            </CardContent>
+          </Card>
+        </section>
       </div>
     </main>
   );
 }
 
 /* ----- helpers and indicators (unchanged logic) ----- */
-function genData(symbol: Symbol, length = CHART_POINT_COUNT, seed = 1): CandlePoint[] {
+function genData(symbol: Symbol, length = DEFAULT_POINT_COUNT, seed = 1): CandlePoint[] {
   const basePrice = symbol === "BTC" ? 45000 : 3000;
   const drift = symbol === "BTC" ? 0.18 : 0.12;
   const volatility = symbol === "BTC" ? 0.035 : 0.028;
@@ -235,7 +284,7 @@ function genData(symbol: Symbol, length = CHART_POINT_COUNT, seed = 1): CandlePo
     date.setDate(date.getDate() - (length - index - 1));
     previousClose = closeRaw;
     return {
-      date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      date: date.toISOString().slice(0, 10),
       open: parseFloat(openRaw.toFixed(2)),
       high: parseFloat(Math.max(highRaw, openRaw, closeRaw).toFixed(2)),
       low: parseFloat(Math.min(lowRaw, openRaw, closeRaw).toFixed(2)),

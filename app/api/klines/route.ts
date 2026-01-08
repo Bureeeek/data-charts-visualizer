@@ -23,7 +23,7 @@ export async function GET(req: Request) {
 
     const raw: any[] = await r.json();
     const rows = raw.map((k) => ({
-      date: new Date(k[0]).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      date: new Date(k[0]).toISOString().slice(0, 10),
       open: Number(k[1]),
       high: Number(k[2]),
       low: Number(k[3]),
