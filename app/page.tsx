@@ -136,12 +136,31 @@ const { theme, toggleTheme } = useTheme();
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ left: 0, right: 20, top: 10, bottom: 10 }}>
                   <CartesianGrid />
-                  <XAxis dataKey="date" minTickGap={24} />
-                  <YAxis
-                    domain={["auto","auto"]}
-                    width={70}
-                    tickFormatter={(v) => `$${v.toLocaleString()}`}
-                  />
+                 {/* Price-Chart */}
+                  <XAxis
+  dataKey="date"
+  minTickGap={24}
+  tick={{
+    fill: theme === "dark" ? "#ffffff" : "hsl(var(--muted-foreground))",
+    fontSize: 12,
+  }}
+/>
+<YAxis
+  domain={["auto","auto"]}
+  width={70}
+  tick={{
+    fill: theme === "dark" ? "#ffffff" : "hsl(var(--muted-foreground))",
+    fontSize: 12,
+  }}
+  axisLine={{ stroke: "hsl(var(--border))" }}
+  tickLine={{ stroke: "hsl(var(--border))" }}
+  tickFormatter={(v) => `$${v.toLocaleString()}`}
+/>
+
+
+
+
+
                   <RechartsTooltip
                     contentStyle={{
                       backgroundColor: "hsl(var(--popover))",
@@ -168,10 +187,56 @@ const { theme, toggleTheme } = useTheme();
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ left: 0, right: 20, top: 10, bottom: 10 }}>
                   <CartesianGrid />
-                  <XAxis dataKey="date" minTickGap={24} />
-                  <YAxis domain={[0, 100]} width={60} />
-                  <ReferenceLine y={70} stroke="#ef4444" strokeDasharray="4 4" label="70" />
-                  <ReferenceLine y={30} stroke="#22d3ee" strokeDasharray="4 4" label="30" />
+                  {/* RSI-Chart */}
+<XAxis
+  dataKey="date"
+  minTickGap={24}
+  tick={{
+    fill: theme === "dark" ? "#ffffff" : "hsl(var(--muted-foreground))",
+    fontSize: 12,
+  }}
+/>
+<YAxis
+  domain={[0, 100]}
+  width={60}
+  tick={{
+    fill: theme === "dark" ? "#ffffff" : "hsl(var(--muted-foreground))",
+    fontSize: 12,
+  }}
+  axisLine={{ stroke: "hsl(var(--border))" }}
+  tickLine={{ stroke: "hsl(var(--border))" }}
+/>
+
+
+
+
+
+
+  <ReferenceLine
+  y={70}
+  stroke="#ef4444"
+  strokeDasharray="4 4"
+  label={{
+    value: "70",
+    position: "right",
+    fill: theme === "dark" ? "#ffffff" : "hsl(var(--muted-foreground))",
+    fontSize: 12,
+  }}
+/>
+<ReferenceLine
+  y={30}
+  stroke="#22d3ee"
+  strokeDasharray="4 4"
+  label={{
+    value: "30",
+    position: "right",
+    fill: theme === "dark" ? "#ffffff" : "hsl(var(--muted-foreground))",
+    fontSize: 12,
+  }}
+/>
+
+
+
                   <RechartsTooltip
                     contentStyle={{
                       backgroundColor: "hsl(var(--popover))",

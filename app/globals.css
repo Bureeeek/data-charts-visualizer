@@ -92,6 +92,7 @@
   --hero-title-size: clamp(2rem, 4.5vw, 3.25rem);
   --hero-sub-size: clamp(1rem, 2vw, 1.125rem);
   --card-blur: 8px;
+  --recharts-text-color: var(--muted-foreground);
 }
 
 /* Dark tokens */
@@ -133,6 +134,7 @@
   --sidebar-accent-foreground: oklch(0.96 0.02 280);
   --sidebar-border: oklch(0.32 0.03 280);
   --sidebar-ring: oklch(0.72 0.12 305);
+  --recharts-text-color: #ffffff;
 }
 
 
@@ -220,3 +222,25 @@
   width: 18px; height: 18px;
   opacity: 0.6;
 }
+/* Recharts: Texte theme-abhängig einfärben */
+.recharts-wrapper text,
+.recharts-wrapper tspan {
+  fill: hsl(var(--recharts-text-color)) !important;
+  font-size: 12px;
+}
+
+/* Linien/Grid kannst du lassen wie bisher */
+.recharts-cartesian-axis line {
+  stroke: color-mix(in oklab, var(--border) 70%, transparent);
+}
+.recharts-grid line {
+  stroke: color-mix(in oklab, var(--border) 70%, transparent);
+  stroke-dasharray: 4 4;
+}
+
+
+
+
+
+
+
