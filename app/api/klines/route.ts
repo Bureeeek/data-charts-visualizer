@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 
 const BINANCE = "https://api.binance.com/api/v3/klines";
+type KlineRow = [
+  number,
+  string,
+  string,
+  string,
+  string,
+  string,
+  ...unknown[],
+];
 
 function pair(sym: string) {
   if (sym === "BTC") return "BTCUSDT";
@@ -21,7 +30,11 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Upstream error" }, { status: r.status });
     }
 
-    const raw: any[] = await r.json();
+    const raw = (await r.json()) as KlineRow[];
+    if (!Array.isArray(raw)) {
+      return NextResponse.json({ error: "Upstream payload error" }, { status: 502 });
+    }
+
     const rows = raw.map((k) => ({
       date: new Date(k[0]).toISOString().slice(0, 10),
       open: Number(k[1]),
@@ -32,7 +45,7 @@ export async function GET(req: Request) {
     }));
 
     return NextResponse.json({ symbol: sym, interval, rows });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

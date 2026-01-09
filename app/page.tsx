@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer,
+  CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer,
   Tooltip as RechartsTooltip, XAxis, YAxis,
 } from "recharts";
 import { RefreshCcw } from "lucide-react";

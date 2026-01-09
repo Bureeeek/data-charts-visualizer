@@ -2,9 +2,11 @@
 
 import { useEffect, useRef } from "react";
 import {
+  CandlestickSeries,
   ColorType,
   CrosshairMode,
   createChart,
+  HistogramSeries,
   type CandlestickData,
   type HistogramData,
   type UTCTimestamp,
@@ -45,53 +47,14 @@ function formatTime(value: number): string {
   });
 }
 
-function isSafeColor(value: string): boolean {
-  const v = value.trim().toLowerCase();
-  return (
-    v === "transparent" ||
-    v.startsWith("#") ||
-    v.startsWith("rgb(") ||
-    v.startsWith("rgba(") ||
-    v.startsWith("hsl(") ||
-    v.startsWith("hsla(")
-  );
-}
-
-function normalizeColor(value: string, fallback: string): string {
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    return fallback;
-  }
-
-  const sentinel = "rgb(1, 2, 3)";
-  ctx.fillStyle = sentinel;
-  try {
-    ctx.fillStyle = value;
-  } catch {
-    return fallback;
-  }
-  const normalized = ctx.fillStyle;
-  if (normalized === sentinel || !isSafeColor(normalized)) {
-    return fallback;
-  }
-  return normalized;
-}
-
-function resolveCssColor(varName: string, fallback: string): string {
-  const body = document.body;
-  if (!body) {
-    return fallback;
-  }
-
-  const probe = document.createElement("span");
-  probe.style.color = `var(${varName})`;
-  probe.style.position = "absolute";
-  probe.style.opacity = "0";
-  body.appendChild(probe);
-  const raw = getComputedStyle(probe).color;
-  probe.remove();
-  return normalizeColor(raw || fallback, fallback);
+function getChartPalette() {
+  const isDark =
+    document.documentElement.classList.contains("dark") ||
+    window.matchMedia("(prefers-color-scheme: dark)").matches;
+  return {
+    text: isDark ? "#e2e8f0" : "#0f172a",
+    border: isDark ? "rgba(148, 163, 184, 0.35)" : "rgba(148, 163, 184, 0.45)",
+  };
 }
 
 export default function TradingViewChart({ data, symbol, interval }: Props) {
@@ -104,8 +67,9 @@ export default function TradingViewChart({ data, symbol, interval }: Props) {
       return;
     }
 
-    const textColor = resolveCssColor("--foreground", "#0f172a");
-    const borderColor = resolveCssColor("--border", "#e2e8f0");
+    const palette = getChartPalette();
+    const textColor = palette.text;
+    const borderColor = palette.border;
 
     const chart = createChart(container, {
       autoSize: true,
@@ -126,7 +90,7 @@ export default function TradingViewChart({ data, symbol, interval }: Props) {
       },
     });
 
-    const candleSeries = chart.addCandlestickSeries({
+    const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#22c55e",
       downColor: "#ef4444",
       borderVisible: false,
@@ -134,11 +98,10 @@ export default function TradingViewChart({ data, symbol, interval }: Props) {
       wickDownColor: "#ef4444",
     });
 
-    const volumeSeries = chart.addHistogramSeries({
+    const volumeSeries = chart.addSeries(HistogramSeries, {
       priceScaleId: "vol",
       color: "rgba(59, 130, 246, 0.4)",
       priceFormat: { type: "volume" },
-      scaleMargins: { top: 0.78, bottom: 0 },
     });
 
     chart.priceScale("vol").applyOptions({
