@@ -9,11 +9,13 @@ import {
   HistogramSeries,
   type CandlestickData,
   type HistogramData,
+  type ISeriesApi,
+  type MouseEventParams,
   type UTCTimestamp,
 } from "lightweight-charts";
 
 export type Symbol = "BTC" | "ETH";
-export type Interval = "1h" | "4h" | "1d" | "1w";
+export type Interval = "1m" | "5m" | "15m" | "1h" | "4h" | "1d" | "1w";
 export type Ohlcv = {
   time: string;
   open: number;
@@ -27,6 +29,7 @@ type Props = {
   data: Ohlcv[];
   symbol: Symbol;
   interval: Interval;
+  liveCandle?: Ohlcv | null;
 };
 
 function toTimestamp(value: string): UTCTimestamp | null {
@@ -47,6 +50,10 @@ function formatTime(value: number): string {
   });
 }
 
+function isIntraday(interval: Interval): boolean {
+  return interval.endsWith("m") || interval.endsWith("h");
+}
+
 function getChartPalette() {
   const isDark =
     document.documentElement.classList.contains("dark") ||
@@ -57,9 +64,19 @@ function getChartPalette() {
   };
 }
 
-export default function TradingViewChart({ data, symbol, interval }: Props) {
+export default function TradingViewChart({ data, symbol, interval, liveCandle }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const symbolRef = useRef(symbol);
+  const intervalRef = useRef(interval);
+
+  useEffect(() => {
+    symbolRef.current = symbol;
+    intervalRef.current = interval;
+  }, [symbol, interval]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -87,6 +104,8 @@ export default function TradingViewChart({ data, symbol, interval }: Props) {
       },
       timeScale: {
         borderColor,
+        timeVisible: isIntraday(interval),
+        secondsVisible: false,
       },
     });
 
@@ -109,37 +128,16 @@ export default function TradingViewChart({ data, symbol, interval }: Props) {
       borderVisible: false,
     });
 
-    const candles: CandlestickData[] = [];
-    const volumes: HistogramData[] = [];
-
-    data.forEach((row, index) => {
-      const parsed = toTimestamp(row.time);
-      const fallback = Math.floor(Date.now() / 1000) - (data.length - 1 - index) * 3600;
-      const time = (parsed ?? fallback) as UTCTimestamp;
-      candles.push({
-        time,
-        open: row.open,
-        high: row.high,
-        low: row.low,
-        close: row.close,
-      });
-      volumes.push({
-        time,
-        value: row.volume,
-        color: row.close >= row.open ? "rgba(34,197,94,0.45)" : "rgba(239,68,68,0.45)",
-      });
-    });
-
-    candleSeries.setData(candles);
-    volumeSeries.setData(volumes);
-    chart.timeScale().fitContent();
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+    volumeSeriesRef.current = volumeSeries;
 
     const tooltip = tooltipRef.current;
     if (tooltip) {
       tooltip.style.display = "none";
     }
 
-    chart.subscribeCrosshairMove((param) => {
+    const handleCrosshairMove = (param: MouseEventParams) => {
       if (!tooltip) return;
       if (!param.time || !param.seriesData) {
         tooltip.style.display = "none";
@@ -161,7 +159,7 @@ export default function TradingViewChart({ data, symbol, interval }: Props) {
 
       tooltip.style.display = "block";
       tooltip.innerHTML = `
-        <div class="text-xs font-semibold">${symbol} - ${interval}</div>
+        <div class="text-xs font-semibold">${symbolRef.current} - ${intervalRef.current}</div>
         <div class="text-xs text-muted-foreground">${formatTime(time)}</div>
         <div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
           <span>O</span><span>${candle.open.toFixed(2)}</span>
@@ -175,12 +173,88 @@ export default function TradingViewChart({ data, symbol, interval }: Props) {
       const { x, y } = param.point ?? { x: 0, y: 0 };
       tooltip.style.left = `${Math.min(x + 16, container.clientWidth - 180)}px`;
       tooltip.style.top = `${Math.min(y + 16, container.clientHeight - 120)}px`;
-    });
+    };
+
+    chart.subscribeCrosshairMove(handleCrosshairMove);
 
     return () => {
+      chart.unsubscribeCrosshairMove(handleCrosshairMove);
       chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+      volumeSeriesRef.current = null;
     };
-  }, [data, interval, symbol]);
+  }, []);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+    chart.timeScale().applyOptions({
+      timeVisible: isIntraday(interval),
+      secondsVisible: false,
+    });
+  }, [interval]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const candleSeries = candleSeriesRef.current;
+    const volumeSeries = volumeSeriesRef.current;
+    if (!chart || !candleSeries || !volumeSeries) {
+      return;
+    }
+
+    const candles: CandlestickData[] = [];
+    const volumes: HistogramData[] = [];
+    data.forEach((row, index) => {
+      const parsed = toTimestamp(row.time);
+      const fallback = Math.floor(Date.now() / 1000) - (data.length - 1 - index) * 3600;
+      const time = (parsed ?? fallback) as UTCTimestamp;
+      candles.push({
+        time,
+        open: row.open,
+        high: row.high,
+        low: row.low,
+        close: row.close,
+      });
+      volumes.push({
+        time,
+        value: row.volume,
+        color: row.close >= row.open ? "rgba(34,197,94,0.45)" : "rgba(239,68,68,0.45)",
+      });
+    });
+
+    candleSeries.setData(candles);
+    volumeSeries.setData(volumes);
+    chart.timeScale().fitContent();
+  }, [data]);
+
+  useEffect(() => {
+    const candleSeries = candleSeriesRef.current;
+    const volumeSeries = volumeSeriesRef.current;
+    if (!candleSeries || !volumeSeries || !liveCandle) {
+      return;
+    }
+
+    const time = toTimestamp(liveCandle.time);
+    if (!time) {
+      return;
+    }
+
+    candleSeries.update({
+      time,
+      open: liveCandle.open,
+      high: liveCandle.high,
+      low: liveCandle.low,
+      close: liveCandle.close,
+    });
+    volumeSeries.update({
+      time,
+      value: liveCandle.volume,
+      color: liveCandle.close >= liveCandle.open ? "rgba(34,197,94,0.45)" : "rgba(239,68,68,0.45)",
+    });
+  }, [liveCandle]);
 
   return (
     <div className="relative h-full w-full">

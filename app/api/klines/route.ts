@@ -23,8 +23,9 @@ export async function GET(req: Request) {
     const sym = (searchParams.get("symbol") || "BTC").toUpperCase();
     const interval = searchParams.get("interval") || "1d";
     const limit = Number(searchParams.get("limit") || 300);
+    const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 1000) : 300;
 
-    const url = `${BINANCE}?symbol=${pair(sym)}&interval=${interval}&limit=${limit}`;
+    const url = `${BINANCE}?symbol=${pair(sym)}&interval=${interval}&limit=${safeLimit}`;
     const r = await fetch(url, { next: { revalidate: 60 } });
     if (!r.ok) {
       return NextResponse.json({ error: "Upstream error" }, { status: r.status });
@@ -36,7 +37,7 @@ export async function GET(req: Request) {
     }
 
     const rows = raw.map((k) => ({
-      date: new Date(k[0]).toISOString().slice(0, 10),
+      date: new Date(k[0]).toISOString(),
       open: Number(k[1]),
       high: Number(k[2]),
       low: Number(k[3]),

@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer,
   Tooltip as RechartsTooltip, XAxis, YAxis,
 } from "recharts";
-import { RefreshCcw } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card";
@@ -16,7 +14,7 @@ import TradingViewChart from "@/components/TradingViewChart";
 import { getKlines } from "@/lib/fetchKlines";
 
 type Symbol = "BTC" | "ETH";
-type Interval = "1h" | "4h" | "1d" | "1w";
+type Interval = "1m" | "5m" | "15m" | "1h" | "4h" | "1d" | "1w";
 type CandlePoint = {
   date: string;
   open: number;
@@ -29,12 +27,15 @@ type CandlePoint = {
   rsi?: number | null;
 };
 const INTERVAL_POINTS: Record<Interval, number> = {
-  "1h": 300,
-  "4h": 240,
+  "1m": 480,
+  "5m": 360,
+  "15m": 320,
+  "1h": 240,
+  "4h": 180,
   "1d": 180,
   "1w": 156,
 };
-const INTERVALS: Interval[] = ["1h", "4h", "1d", "1w"];
+const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"];
 const DEFAULT_POINT_COUNT = INTERVAL_POINTS["1d"];
 
 export default function Home() {
@@ -43,8 +44,10 @@ export default function Home() {
   const [emaSpan, setEmaSpan] = useState(12);
   const [rsiPeriod, setRsiPeriod] = useState(14);
   const [interval, setInterval] = useState<Interval>("1d");
-  const [seed, setSeed] = useState(1);
   const [priceData, setPriceData] = useState<CandlePoint[]>([]);
+  const [lastCandle, setLastCandle] = useState<CandlePoint | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const pointCount = INTERVAL_POINTS[interval];
 
@@ -59,16 +62,19 @@ export default function Home() {
           throw new Error("empty klines");
         }
         setPriceData(rows);
+        setLastCandle(rows.at(-1) ?? null);
       } catch {
         if (!alive) return;
-        setPriceData(genData(symbol, pointCount, seed));
+        const fallback = genData(symbol, pointCount, 1, interval);
+        setPriceData(fallback);
+        setLastCandle(fallback.at(-1) ?? null);
       }
     })();
 
     return () => {
       alive = false;
     };
-  }, [symbol, interval, pointCount, seed]);
+  }, [symbol, interval, pointCount]);
 
   const chartData = useMemo(() => {
     const closes = priceData.map((p) => p.close);
@@ -78,49 +84,136 @@ export default function Home() {
     return priceData.map((p, i) => ({ ...p, sma: smaValues[i], ema: emaValues[i], rsi: rsiValues[i] }));
   }, [priceData, smaWindow, emaSpan, rsiPeriod]);
 
-  const handleRegenerate = () => setSeed((prev) => prev + 1);
-  const latestClose = chartData.at(-1)?.close ?? 0;
+  useEffect(() => {
+    let active = true;
+    const livePollMs = 4000;
+
+    const stopPolling = () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+
+    const closeSocket = () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+
+    const startPolling = () => {
+      if (pollRef.current) return;
+      pollRef.current = setInterval(async () => {
+        try {
+          const rows = await getKlines(symbol, interval, 2);
+          if (!active || !rows.length) return;
+          const latest = rows.at(-1);
+          if (!latest) return;
+          setPriceData((prev) => mergeLiveCandle(prev, latest, pointCount));
+          setLastCandle(latest);
+        } catch {
+          // Keep silent and try again on the next tick.
+        }
+      }, livePollMs);
+    };
+
+    try {
+      const streamSymbol = symbol === "BTC" ? "btcusdt" : "ethusdt";
+      const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${streamSymbol}@kline_${interval}`);
+      wsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        if (!active) return;
+        const payload = JSON.parse(event.data) as {
+          k?: {
+            t: number;
+            o: string;
+            h: string;
+            l: string;
+            c: string;
+            v: string;
+          };
+        };
+        if (!payload?.k) return;
+        const live = {
+          date: new Date(payload.k.t).toISOString(),
+          open: Number(payload.k.o),
+          high: Number(payload.k.h),
+          low: Number(payload.k.l),
+          close: Number(payload.k.c),
+          volume: Number(payload.k.v),
+        };
+        setPriceData((prev) => mergeLiveCandle(prev, live, pointCount));
+        setLastCandle(live);
+      };
+
+      ws.onerror = () => {
+        if (!active) return;
+        closeSocket();
+        startPolling();
+      };
+
+      ws.onclose = () => {
+        if (!active) return;
+        startPolling();
+      };
+    } catch {
+      startPolling();
+    }
+
+    return () => {
+      active = false;
+      closeSocket();
+      stopPolling();
+    };
+  }, [symbol, interval, pointCount]);
+
+  const latestClose = lastCandle?.close ?? chartData.at(-1)?.close ?? 0;
 
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="container-mock py-10">
         {/* Hero */}
         <header className="mb-8">
-  <div className="flex items-center justify-between gap-4">
-    {/* Left: Logo/Name */}
-    <div className="shrink-0 text-lg font-semibold">ChartsNews</div>
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="shrink-0 text-lg font-semibold">ChartsNews</div>
+              <div className="rounded-full bg-muted/70 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Crypto
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Last:{" "}
+                <span className="font-semibold text-foreground">
+                  ${latestClose.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
 
-    {/* Center: Searchbar */}
-    <div className="flex-1 max-w-xl mx-4">
-      <div className="searchbar">
-        <svg className="searchbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <circle cx="11" cy="11" r="7" strokeWidth="2"></circle>
-          <line x1="21" y1="21" x2="16.65" y2="16.65" strokeWidth="2"></line>
-        </svg>
-        <input placeholder="Hinted search text" aria-label="Search" />
-      </div>
-    </div>
+            <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+              <div className="w-full sm:max-w-xs">
+                <div className="searchbar">
+                  <svg className="searchbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <circle cx="11" cy="11" r="7" strokeWidth="2"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" strokeWidth="2"></line>
+                  </svg>
+                  <input placeholder="Search BTC or ETH" aria-label="Search" />
+                </div>
+              </div>
+              <Tabs value={symbol} onValueChange={(v) => setSymbol(v as Symbol)}>
+                <TabsList className="pill-tabs bg-muted/70 backdrop-blur">
+                  <TabsTrigger value="BTC" className="pill">BTC</TabsTrigger>
+                  <TabsTrigger value="ETH" className="pill">ETH</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+          </div>
 
-    {/* Right: Asset-Typen und CTA */}
-    <div className="flex items-center gap-3">
-      <Tabs value={symbol} onValueChange={(v) => setSymbol(v as Symbol)}>
-        <TabsList className="pill-tabs bg-muted/70 backdrop-blur">
-          <TabsTrigger value="BTC" className="pill">Stocks</TabsTrigger>
-          <TabsTrigger value="ETH" className="pill">Crypto</TabsTrigger>
-          <TabsTrigger value="BTC" className="pill">Indexes</TabsTrigger>
-          <TabsTrigger value="ETH" className="pill">Materials</TabsTrigger>
-        </TabsList>
-      </Tabs>
-      <Button className="btn-primary-hero">Sign Up</Button>
-    </div>
-  </div>
-
-  {/* Hero-Title darunter */}
-  <div className="mt-8">
-    <h1 className="hero-title">Welcome to Charts News</h1>
-    <p className="hero-sub mt-2">Your real time website for market news and charts.</p>
-  </div>
-</header>
+          <div className="mt-8">
+            <h1 className="hero-title">Welcome to Charts News</h1>
+            <p className="hero-sub mt-2">Your real time website for market news and charts.</p>
+          </div>
+        </header>
 
 
         {/* Controls */}
@@ -156,10 +249,6 @@ export default function Home() {
                 </TabsList>
               </Tabs>
             </div>
-            <Button variant="outline" onClick={handleRegenerate} className="gap-2 w-full md:w-auto">
-              <RefreshCcw className="h-4 w-4" />
-              Regenerate Data
-            </Button>
           </CardContent>
         </Card>
 
@@ -167,7 +256,7 @@ export default function Home() {
         <section className="mt-8 grid gap-6 lg:grid-cols-2">
           <Card className="card-soft border-border">
             <CardHeader className="pb-4">
-              <CardTitle className="text-xl">{symbol} Price & Moving Averages</CardTitle>
+              <CardTitle className="text-xl">{symbol} Price & Moving Averages ({interval})</CardTitle>
               <CardDescription>
                 Latest close: ${latestClose.toLocaleString(undefined, { maximumFractionDigits: 2 })}
               </CardDescription>
@@ -176,7 +265,11 @@ export default function Home() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ left: 0, right: 20, top: 10, bottom: 10 }}>
                   <CartesianGrid />
-                  <XAxis dataKey="date" minTickGap={24} />
+                  <XAxis
+                    dataKey="date"
+                    minTickGap={24}
+                    tickFormatter={(value) => formatXAxisLabel(String(value), interval)}
+                  />
                   <YAxis
                     domain={["auto","auto"]}
                     width={70}
@@ -189,6 +282,7 @@ export default function Home() {
                       border: "1px solid hsl(var(--border))",
                       color: "hsl(var(--popover-foreground))",
                     }}
+                    labelFormatter={(label) => formatTooltipLabel(String(label), interval)}
                   />
                   {/* Optional: <Legend /> */}
                   <Line type="monotone" dataKey="close" stroke="#16a34a" strokeWidth={2} dot={false} name="Close" />
@@ -201,14 +295,18 @@ export default function Home() {
 
           <Card className="card-soft border-border">
             <CardHeader className="pb-4">
-              <CardTitle className="text-xl">{symbol} RSI</CardTitle>
+              <CardTitle className="text-xl">{symbol} RSI ({interval})</CardTitle>
               <CardDescription>Monitor momentum with 30/70 threshold lines.</CardDescription>
             </CardHeader>
             <CardContent className="h-[360px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ left: 0, right: 20, top: 10, bottom: 10 }}>
                   <CartesianGrid />
-                  <XAxis dataKey="date" minTickGap={24} />
+                  <XAxis
+                    dataKey="date"
+                    minTickGap={24}
+                    tickFormatter={(value) => formatXAxisLabel(String(value), interval)}
+                  />
                   <YAxis domain={[0, 100]} width={60} />
                   <ReferenceLine y={70} stroke="#ef4444" strokeDasharray="4 4" label="70" />
                   <ReferenceLine y={30} stroke="#22d3ee" strokeDasharray="4 4" label="30" />
@@ -219,6 +317,7 @@ export default function Home() {
                       border: "1px solid hsl(var(--border))",
                       color: "hsl(var(--popover-foreground))",
                     }}
+                    labelFormatter={(label) => formatTooltipLabel(String(label), interval)}
                   />
                   {/* Optional: <Legend /> */}
                   <Line type="monotone" dataKey="rsi" stroke="#7c3aed" strokeWidth={2} dot={false} name={`RSI ${rsiPeriod}`} />
@@ -231,7 +330,7 @@ export default function Home() {
         <section className="mt-8">
           <Card className="card-soft border-border">
             <CardHeader className="pb-4">
-              <CardTitle className="text-xl">TradingView Style Chart</CardTitle>
+              <CardTitle className="text-xl">TradingView Style Chart ({interval})</CardTitle>
               <CardDescription>
                 Zoom, pan, and crosshair interaction powered by lightweight-charts.
               </CardDescription>
@@ -248,6 +347,18 @@ export default function Home() {
                 }))}
                 symbol={symbol}
                 interval={interval}
+                liveCandle={
+                  lastCandle
+                    ? {
+                      time: lastCandle.date,
+                      open: lastCandle.open,
+                      high: lastCandle.high,
+                      low: lastCandle.low,
+                      close: lastCandle.close,
+                      volume: lastCandle.volume,
+                    }
+                    : null
+                }
               />
             </CardContent>
           </Card>
@@ -257,8 +368,83 @@ export default function Home() {
   );
 }
 
+function isIntradayInterval(interval: Interval): boolean {
+  return interval.endsWith("m") || interval.endsWith("h");
+}
+
+function formatXAxisLabel(value: string, interval: Interval): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  if (isIntradayInterval(interval)) {
+    return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  }
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatTooltipLabel(value: string, interval: Interval): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  if (isIntradayInterval(interval)) {
+    return date.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function intervalToMs(interval: Interval): number {
+  switch (interval) {
+    case "1m":
+      return 60_000;
+    case "5m":
+      return 5 * 60_000;
+    case "15m":
+      return 15 * 60_000;
+    case "1h":
+      return 60 * 60_000;
+    case "4h":
+      return 4 * 60 * 60_000;
+    case "1w":
+      return 7 * 24 * 60 * 60_000;
+    case "1d":
+    default:
+      return 24 * 60 * 60_000;
+  }
+}
+
+function mergeLiveCandle(
+  prev: CandlePoint[],
+  next: CandlePoint,
+  maxPoints: number,
+): CandlePoint[] {
+  if (!prev.length) return [next];
+  const last = prev[prev.length - 1];
+  const lastTime = Date.parse(last.date);
+  const nextTime = Date.parse(next.date);
+  if (Number.isNaN(nextTime)) return prev;
+  if (nextTime === lastTime) {
+    return [...prev.slice(0, -1), { ...last, ...next }];
+  }
+  if (nextTime > lastTime) {
+    const updated = [...prev, next];
+    if (updated.length > maxPoints) {
+      updated.shift();
+    }
+    return updated;
+  }
+  return prev;
+}
+
 /* ----- helpers and indicators (unchanged logic) ----- */
-function genData(symbol: Symbol, length = DEFAULT_POINT_COUNT, seed = 1): CandlePoint[] {
+function genData(
+  symbol: Symbol,
+  length = DEFAULT_POINT_COUNT,
+  seed = 1,
+  interval: Interval = "1d",
+): CandlePoint[] {
   const basePrice = symbol === "BTC" ? 45000 : 3000;
   const drift = symbol === "BTC" ? 0.18 : 0.12;
   const volatility = symbol === "BTC" ? 0.035 : 0.028;
@@ -280,11 +466,11 @@ function genData(symbol: Symbol, length = DEFAULT_POINT_COUNT, seed = 1): Candle
     const lowRaw = Math.max(1, baseLow * (1 - lowNoise));
 
     const volume = Math.round(baseVolume * (0.55 + random() * 0.9));
-    const date = new Date();
-    date.setDate(date.getDate() - (length - index - 1));
+    const stepMs = intervalToMs(interval);
+    const date = new Date(Date.now() - (length - index - 1) * stepMs);
     previousClose = closeRaw;
     return {
-      date: date.toISOString().slice(0, 10),
+      date: date.toISOString(),
       open: parseFloat(openRaw.toFixed(2)),
       high: parseFloat(Math.max(highRaw, openRaw, closeRaw).toFixed(2)),
       low: parseFloat(Math.min(lowRaw, openRaw, closeRaw).toFixed(2)),
