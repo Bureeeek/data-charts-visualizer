@@ -43,7 +43,7 @@ export default function Home() {
   const [smaWindow, setSmaWindow] = useState(20);
   const [emaSpan, setEmaSpan] = useState(12);
   const [rsiPeriod, setRsiPeriod] = useState(14);
-  const [interval, setInterval] = useState<Interval>("1d");
+  const [interval, setIntervalValue] = useState<Interval>("1d");
   const [priceData, setPriceData] = useState<CandlePoint[]>([]);
   const [lastCandle, setLastCandle] = useState<CandlePoint | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -86,7 +86,6 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
-    const livePollMs = 4000;
 
     const stopPolling = () => {
       if (pollRef.current) {
@@ -110,12 +109,21 @@ export default function Home() {
           if (!active || !rows.length) return;
           const latest = rows.at(-1);
           if (!latest) return;
-          setPriceData((prev) => mergeLiveCandle(prev, latest, pointCount));
-          setLastCandle(latest);
+          setPriceData((prev) => {
+            const last = prev.at(-1);
+            const lastTime = last ? Date.parse(last.date) : NaN;
+            const nextTime = Date.parse(latest.date);
+            if (!Number.isFinite(nextTime)) return prev;
+            if (Number.isFinite(lastTime) && lastTime === nextTime) {
+              return prev;
+            }
+            setLastCandle(latest);
+            return mergeLiveCandle(prev, latest, pointCount);
+          });
         } catch {
           // Keep silent and try again on the next tick.
         }
-      }, livePollMs);
+      }, 4000);
     };
 
     try {
@@ -133,6 +141,7 @@ export default function Home() {
             l: string;
             c: string;
             v: string;
+            x: boolean;
           };
         };
         if (!payload?.k) return;
@@ -144,8 +153,10 @@ export default function Home() {
           close: Number(payload.k.c),
           volume: Number(payload.k.v),
         };
-        setPriceData((prev) => mergeLiveCandle(prev, live, pointCount));
-        setLastCandle(live);
+        if (payload.k.x) {
+          setLastCandle(live);
+          setPriceData((prev) => mergeLiveCandle(prev, live, pointCount));
+        }
       };
 
       ws.onerror = () => {
@@ -158,6 +169,7 @@ export default function Home() {
         if (!active) return;
         startPolling();
       };
+
     } catch {
       startPolling();
     }
@@ -239,7 +251,7 @@ export default function Home() {
             />
             <div className="space-y-2 md:col-span-3">
               <div className="text-sm font-medium">Interval</div>
-              <Tabs value={interval} onValueChange={(v) => setInterval(v as Interval)}>
+              <Tabs value={interval} onValueChange={(v) => setIntervalValue(v as Interval)}>
                 <TabsList className="bg-muted/70">
                   {INTERVALS.map((value) => (
                     <TabsTrigger key={value} value={value} className="px-4 py-2">
