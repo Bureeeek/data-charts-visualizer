@@ -37,6 +37,9 @@ const INTERVAL_POINTS: Record<Interval, number> = {
 };
 const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"];
 const DEFAULT_POINT_COUNT = INTERVAL_POINTS["1d"];
+const CHART_AXIS_COLOR = "#f1f5f9";
+const CHART_AXIS_LINE_COLOR = "rgba(148, 163, 184, 0.45)";
+const CHART_GRID_COLOR = "rgba(148, 163, 184, 0.24)";
 
 export default function Home() {
   const [symbol, setSymbol] = useState<Symbol>("BTC");
@@ -276,16 +279,22 @@ export default function Home() {
             <CardContent className="h-[360px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ left: 0, right: 20, top: 10, bottom: 10 }}>
-                  <CartesianGrid />
+                  <CartesianGrid stroke={CHART_GRID_COLOR} />
                   <XAxis
                     dataKey="date"
                     minTickGap={24}
                     tickFormatter={(value) => formatXAxisLabel(String(value), interval)}
+                    tick={{ fill: CHART_AXIS_COLOR, fontSize: 12 }}
+                    axisLine={{ stroke: CHART_AXIS_LINE_COLOR }}
+                    tickLine={{ stroke: CHART_AXIS_LINE_COLOR }}
                   />
                   <YAxis
                     domain={["auto","auto"]}
                     width={70}
                     tickFormatter={(v) => `$${v.toLocaleString()}`}
+                    tick={{ fill: CHART_AXIS_COLOR, fontSize: 12 }}
+                    axisLine={{ stroke: CHART_AXIS_LINE_COLOR }}
+                    tickLine={{ stroke: CHART_AXIS_LINE_COLOR }}
                   />
                   <RechartsTooltip
                     contentStyle={{
@@ -313,15 +322,34 @@ export default function Home() {
             <CardContent className="h-[360px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ left: 0, right: 20, top: 10, bottom: 10 }}>
-                  <CartesianGrid />
+                  <CartesianGrid stroke={CHART_GRID_COLOR} />
                   <XAxis
                     dataKey="date"
                     minTickGap={24}
                     tickFormatter={(value) => formatXAxisLabel(String(value), interval)}
+                    tick={{ fill: CHART_AXIS_COLOR, fontSize: 12 }}
+                    axisLine={{ stroke: CHART_AXIS_LINE_COLOR }}
+                    tickLine={{ stroke: CHART_AXIS_LINE_COLOR }}
                   />
-                  <YAxis domain={[0, 100]} width={60} />
-                  <ReferenceLine y={70} stroke="#ef4444" strokeDasharray="4 4" label="70" />
-                  <ReferenceLine y={30} stroke="#22d3ee" strokeDasharray="4 4" label="30" />
+                  <YAxis
+                    domain={[0, 100]}
+                    width={60}
+                    tick={{ fill: CHART_AXIS_COLOR, fontSize: 12 }}
+                    axisLine={{ stroke: CHART_AXIS_LINE_COLOR }}
+                    tickLine={{ stroke: CHART_AXIS_LINE_COLOR }}
+                  />
+                  <ReferenceLine
+                    y={70}
+                    stroke="#ef4444"
+                    strokeDasharray="4 4"
+                    label={{ value: "70", fill: CHART_AXIS_COLOR, position: "insideRight" }}
+                  />
+                  <ReferenceLine
+                    y={30}
+                    stroke="#22d3ee"
+                    strokeDasharray="4 4"
+                    label={{ value: "30", fill: CHART_AXIS_COLOR, position: "insideRight" }}
+                  />
                   <RechartsTooltip
                     contentStyle={{
                       backgroundColor: "hsl(var(--popover))",
