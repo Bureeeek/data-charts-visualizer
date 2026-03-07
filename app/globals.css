@@ -92,7 +92,7 @@
   --hero-title-size: clamp(2rem, 4.5vw, 3.25rem);
   --hero-sub-size: clamp(1rem, 2vw, 1.125rem);
   --card-blur: 8px;
-  --recharts-text-color: var(--muted-foreground);
+  --recharts-text-color: hsl(var(--muted-foreground));
 }
 
 /* Dark tokens */
@@ -225,7 +225,7 @@
 /* Recharts: Texte theme-abhängig einfärben */
 .recharts-wrapper text,
 .recharts-wrapper tspan {
-  fill: hsl(var(--recharts-text-color)) !important;
+  fill: var(--recharts-text-color) !important;
   font-size: 12px;
 }
 
